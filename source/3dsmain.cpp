@@ -297,10 +297,8 @@ void S9xLoadSDD1Data ()
 const char * S9xGetFilename (const char *ex)
 {
 	static char	s[PATH_MAX + 1];
-	char		drive[_MAX_DRIVE + 1], dir[_MAX_DIR + 1], fname[_MAX_FNAME + 1], ext[_MAX_EXT + 1];
 
-	_splitpath(Memory.ROMFilename, drive, dir, fname, ext);
-	snprintf(s, PATH_MAX + 1, "%s/%s%s", dir, fname, ex);
+	snprintf(s, PATH_MAX + 1, "snes/%s%s", Memory.ROMName, ex);
 
 	return (s);
 }
@@ -308,16 +306,13 @@ const char * S9xGetFilename (const char *ex)
 const char * S9xGetFilenameInc (const char *ex)
 {
 	static char	s[PATH_MAX + 1];
-	char		drive[_MAX_DRIVE + 1], dir[_MAX_DIR + 1], fname[_MAX_FNAME + 1], ext[_MAX_EXT + 1];
 
 	unsigned int	i = 0;
 	const char		*d;
 	struct stat		buf;
 
-	_splitpath(Memory.ROMFilename, drive, dir, fname, ext);
-
 	do
-		snprintf(s, PATH_MAX + 1, "%s/%s.%03d%s", dir, fname, i++, ex);
+		snprintf(s, PATH_MAX + 1, "snes/%s.%03d%s", Memory.ROMName, i++, ex);
 	while (stat(s, &buf) == 0 && i < 1000);
 
 	return (s);
@@ -945,6 +940,7 @@ bool settingsLoad()
         return false;
     
     fp = fopen(S9xGetFilename(".cfg"), "r");
+    if (fp == NULL) fp = fopen("romfs:/rom.cfg", "r");
     //printf ("fp = %x\n", (uint32)fp);
     if (fp != NULL)
     {
@@ -1007,7 +1003,7 @@ void menuSetupCheats();  // forward declaration
 void snesLoadRom()
 {
     consoleClear();
-    snprintf(romFileNameFullPath, _MAX_PATH, "%s%s", cwd, romFileName);
+    snprintf(romFileNameFullPath, _MAX_PATH, "romfs:/rom.smc");
 
     bool loaded = Memory.LoadROM(romFileNameFullPath);
     Memory.LoadSRAM (S9xGetFilename (".srm"));
@@ -1021,9 +1017,10 @@ void snesLoadRom()
     //gpu3dsClearAllRenderTargets();
     //printf ("b\n");
     
-    if (loaded)
+    if (!loaded)
     {
-        printf ("  ROM Loaded...\n");
+        printf ("Failed to load ROM...\n");
+        exit(0);
     }
     GPU3DS.emulatorState = EMUSTATE_EMULATE;
 
@@ -1325,11 +1322,11 @@ void menuPause()
     S9xAddTab("Emulator", emulatorMenu, emulatorMenuCount);
     S9xAddTab("Options", optionMenu, optionMenuCount);
     S9xAddTab("Cheats", cheatMenu, cheatMenuCount);
-    S9xAddTab("Select ROM", fileMenu, totalRomFileCount);
+    // S9xAddTab("Select ROM", fileMenu, totalRomFileCount);
     S9xSetTabSubTitle(0, NULL);
     S9xSetTabSubTitle(1, NULL);
     S9xSetTabSubTitle(2, NULL);
-    S9xSetTabSubTitle(3, cwd);
+    // S9xSetTabSubTitle(3, cwd);
     S9xSetTransferGameScreen(true);
     settingsUpdateMenuCheckboxes();
 
@@ -1502,13 +1499,13 @@ char *noCheatsText[] {
     "    No cheats available for this game ",
     "",
     "    To enable cheats:  ",
-    "      Copy your .CHT file into the same folder as  ",
-    "      ROM file and make sure it has the same name. ",
+    "      Copy your .CHT file into the /snes folder and ",
+    "      make sure it has the same name of your game. ",
     "",
-    "      If your ROM filename is: ",
-    "          MyGame.smc ",
+    "      If your ROM's internal name is: ",
+    "          MY GAME ",
     "      Then your cheat filename must be: ",
-    "          MyGame.cht ",
+    "          MY GAME.cht ",
     "",
     ""
      };
@@ -1674,12 +1671,12 @@ void emulatorInitialize()
         exit (0);
     }
 
-    /*if (romfsInit()!=0)
+    if (romfsInit()!=0)
     {
         printf ("Unable to initialize romfs\n");
         exit (0);
     }
-    */
+    
     printf ("Initialization complete\n");
         
     ptmSysmInit ();
@@ -2433,11 +2430,12 @@ int main()
     //testAPU();
     //testGPU();
     //testTileCache();
-    emulatorInitialize();    
+    emulatorInitialize();
     clearTopScreenWithLogo();
-   
+
     getcwd(cwd, 1023);
-    menuSelectFile();
+    // menuSelectFile();
+    snesLoadRom();
 
     while (true)
     {
