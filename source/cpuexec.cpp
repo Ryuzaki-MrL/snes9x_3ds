@@ -107,6 +107,8 @@
 #include "3dsopt.h"
 #include "3dssnes9x.h"
 
+extern struct SSA1 SA1;
+
 #define CPUCYCLES_REGISTERS
 #define OPCODE_REGISTERS
 
@@ -223,7 +225,6 @@ void S9xDoHBlankProcessingWithRegisters()
 
 	char debugLine[500];
 
-/*
 	#define DEBUG_OUTPUT \
 		if (GPU3DS.enableDebug) \
 		{ \
@@ -235,10 +236,10 @@ void S9xDoHBlankProcessingWithRegisters()
 			fclose (fp); \
 			goto S9xMainLoop_EndFrame; \ 
 		} \
-*/
 
+/*
 	#define DEBUG_OUTPUT \
-		if (GPU3DS.enableDebug) \
+		if (GPU3DS.enableDebug && !Settings.Paused) \
 		{ \
 			CpuSaveFastRegisters(); \
 			printf ("\n"); \
@@ -247,22 +248,36 @@ void S9xDoHBlankProcessingWithRegisters()
 			printf ("%s", debugLine); \
 			goto S9xMainLoop_EndFrame; \ 
 		} \
-
+*/
 #endif
 
 #ifdef OPCODE_REGISTERS
 
-#define EXECUTE_ONE_OPCODE \
+#define EXECUTE_ONE_OPCODE(SupportSA1) \
 	if (CPU_Cycles >= CPU.NextEvent) S9xDoHBlankProcessingWithRegisters(); \
 	CPU_Cycles += CPU.MemSpeed; \
-	(*fastOpcodes [*CPU_PC++].S9xOpcode) (); \
-	if (CPU.Flags) goto S9xMainLoop_HandleFlags; \
-	\
+	if (!SupportSA1) \
+	{ \
+		(*fastOpcodes [*CPU_PC++].S9xOpcode) (); \
+		if (CPU.Flags) goto S9xMainLoop_HandleFlags; \
+	} \
+	else \
+	{ \
+		(*ICPU.S9xOpcodes [*CPU_PC++].S9xOpcode) (); \
+		if (SA1.Executing) \
+		{ \
+			if (SA1.Flags & IRQ_PENDING_FLAG) S9xSA1CheckIRQ(); \
+			(*SA1.S9xOpcodes [*SA1.PC++].S9xOpcode) (); \
+			(*SA1.S9xOpcodes [*SA1.PC++].S9xOpcode) (); \
+			(*SA1.S9xOpcodes [*SA1.PC++].S9xOpcode) (); \
+		} \
+		if (CPU.Flags) goto S9xMainLoop_HandleFlags; \
+	} \
 	DEBUG_OUTPUT
 
 #else
 
-#define EXECUTE_ONE_OPCODE \
+#define EXECUTE_ONE_OPCODE(SupportSA1) \
 	if (CPU_Cycles >= CPU.NextEvent) S9xDoHBlankProcessingWithRegisters(); \
 	CPU_Cycles += CPU.MemSpeed; \
 	(*ICPU.S9xOpcodes [*CPU_PC++].S9xOpcode) (); \
@@ -270,18 +285,19 @@ void S9xDoHBlankProcessingWithRegisters()
 
 #endif
 
-#define EXECUTE_TEN_OPCODES \
-		EXECUTE_ONE_OPCODE \
-		EXECUTE_ONE_OPCODE \
-		EXECUTE_ONE_OPCODE \
-		EXECUTE_ONE_OPCODE \
-		EXECUTE_ONE_OPCODE \
-		EXECUTE_ONE_OPCODE \
-		EXECUTE_ONE_OPCODE \
-		EXECUTE_ONE_OPCODE \
-		EXECUTE_ONE_OPCODE \
-		EXECUTE_ONE_OPCODE \
-
+#define EXECUTE_TEN_OPCODES(SupportSA1) \
+	{ \
+		EXECUTE_ONE_OPCODE (SupportSA1) \
+		EXECUTE_ONE_OPCODE (SupportSA1) \
+		EXECUTE_ONE_OPCODE (SupportSA1) \
+		EXECUTE_ONE_OPCODE (SupportSA1) \
+		EXECUTE_ONE_OPCODE (SupportSA1) \
+		EXECUTE_ONE_OPCODE (SupportSA1) \
+		EXECUTE_ONE_OPCODE (SupportSA1) \
+		EXECUTE_ONE_OPCODE (SupportSA1) \
+		EXECUTE_ONE_OPCODE (SupportSA1) \
+		EXECUTE_ONE_OPCODE (SupportSA1) \
+	}
 
 // New Loop
 // The unrolled loop runs faster.
@@ -306,26 +322,14 @@ void S9xMainLoop (void)
     {
 S9xMainLoop_Execute:
 		//EXECUTE_ONE_OPCODE
-		EXECUTE_TEN_OPCODES
-		EXECUTE_TEN_OPCODES
+		EXECUTE_TEN_OPCODES (false)
+		EXECUTE_TEN_OPCODES (false)
 	} 
 
 S9xMainLoop_HandleFlags:
 	// Bug fix: Removed save/load fast registers.
 	S9xHandleFlags(); 
-
 	DEBUG_OUTPUT
-	/*
-	if (CPU_PC - CPU.PCBase == 0xB82A) GPU3DS.enableDebug = true; \
-	if (GPU3DS.enableDebug) 
-	{ 
-		printf ("PC :%x OP:%02x%02x%02x%02x HV:%d (%d),%d\n   A%04x X%04x Y%04x %x E%dM%dX%d\n", \
-			CPU_PC - CPU.PCBase, *CPU_PC, *(CPU_PC + 1), *(CPU_PC + 2), *(CPU_PC + 3), (int)CPU.Cycles, (int) CPU.NextEvent, (int)CPU.V_Counter, \
-			Registers.A.W, Registers.X.W, Registers.Y.W, CPU.Flags, \
-			CheckEmulation() ? 1 : 0, CheckMemory() ? 1 : 0, CheckIndex() ? 1 : 0 );  \
-		goto S9xMainLoop_EndFrame; 
-	} 
-	*/
 
 	if (!(CPU.Flags & SCAN_KEYS_FLAG)) 
 		goto S9xMainLoop_Execute;
@@ -333,7 +337,65 @@ S9xMainLoop_HandleFlags:
 
     
 S9xMainLoop_EndFrame:
-	//GPU3DS.enableDebug = false;
+	// End of current frame, prepare to return to caller
+	//
+    Registers.PC = CPU_PC - CPU.PCBase;
+    S9xPackStatus ();
+    APURegisters.PC = IAPU.PC - IAPU.RAM;
+    S9xAPUPackStatus ();
+    if (CPU.Flags & SCAN_KEYS_FLAG)
+    {
+	    S9xSyncSpeed ();
+		CPU.Flags &= ~SCAN_KEYS_FLAG;
+    }
+	
+	CpuSaveFastRegisters();
+
+	// For some reason, there seems to be a bug in GCC when
+	// reserving global registers + pushing of those registers
+	// on the stack (could it be due to some stack buffer overrrun?)
+	// prevent registers from getting overwritten.
+	// 
+	asm ("add sp, sp, #32");
+
+	asm ("ldmfd	sp!, {r8, r9, r10, r11}");
+}
+
+
+
+// Special loop for SA1 support.
+//
+void S9xMainLoopWithSA1 (void)
+{
+	asm ("stmfd	sp!, {r8, r9, r10, r11}");
+
+	// For some reason, there seems to be a bug in GCC when
+	// reserving global registers + pushing of those registers
+	// on the stack (could it be due to some stack buffer overrrun?)
+	// prevent registers from getting overwritten.
+	// 
+	asm ("sub sp, sp, #32");				
+
+	CpuLoadFastRegisters();
+
+    for (;;)
+    {
+S9xMainLoop_Execute:
+		EXECUTE_TEN_OPCODES (true)
+		EXECUTE_TEN_OPCODES (true)
+	} 
+
+S9xMainLoop_HandleFlags:
+	// Bug fix: Removed save/load fast registers.
+	S9xHandleFlags(); 
+
+	DEBUG_OUTPUT
+	if (!(CPU.Flags & SCAN_KEYS_FLAG)) 
+		goto S9xMainLoop_Execute;
+	goto S9xMainLoop_EndFrame;
+
+    
+S9xMainLoop_EndFrame:
 	// End of current frame, prepare to return to caller
 	//
     Registers.PC = CPU_PC - CPU.PCBase;
@@ -416,6 +478,35 @@ void S9xDoHBlankProcessing ()
 			//APU_EXECUTE();
 			//t3dsEndTiming(21);
 
+			static const int addr[] = { 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31 };
+
+			// Optimization, for a small number of PPU registers,
+			// we will trigger the FLUSH_REDRAW here instead of
+			// us doing it when the register values change. This is
+			// because some games like FF3 and Ace o Nerae changes
+			// the registers multiple times in the same scanline,
+			// even though the end value is the same by the end of
+			// the scanline. But because they modify the registers,
+			// the rendering is forced to do a FLUSH_REDRAW.
+			//
+			// In this optimization, we simply defer the FLUSH_REDRAW
+			// until this point here and only when we determine that 
+			// at least one of the registers have changed from the
+			// value in the previous scanline.
+			//
+			for (int i = 0; i < sizeof(addr) / sizeof(int); i++)
+			{
+				int a = addr[i];
+				if (IPPU.DeferredRegisterWrite[a] != 0xff00 &&
+					IPPU.DeferredRegisterWrite[a] != Memory.FillRAM[a + 0x2100])
+				{
+					DEBUG_FLUSH_REDRAW(a + 0x2100, IPPU.DeferredRegisterWrite[a]);
+					FLUSH_REDRAW();
+					Memory.FillRAM[a + 0x2100] = IPPU.DeferredRegisterWrite[a];
+				}
+				IPPU.DeferredRegisterWrite[a] = 0xff00;
+			}
+
 		#ifndef STORM
 			if (Settings.SoundSync)
 				S9xGenerateSound ();
@@ -467,7 +558,7 @@ void S9xDoHBlankProcessing ()
 			if (CPU.V_Counter == PPU.ScreenHeight + FIRST_VISIBLE_LINE)
 			{
 #ifdef DEBUG_CPU
-				printf ("debug frame counter: %d\n", debugFrameCounter);
+				//printf ("debug frame counter: %d\n", debugFrameCounter);
 				debugFrameCounter++;
 #endif				
 				// Start of V-blank
@@ -521,6 +612,7 @@ void S9xDoHBlankProcessing ()
 				CPU.Flags &= ~NMI_FLAG;
 				S9xStartScreenRefresh ();
 			}
+
 			if (CPU.V_Counter >= FIRST_VISIBLE_LINE &&
 				CPU.V_Counter < PPU.ScreenHeight + FIRST_VISIBLE_LINE)
 			{

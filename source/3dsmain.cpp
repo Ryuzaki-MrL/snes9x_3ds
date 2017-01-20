@@ -87,6 +87,7 @@ u64 frameCountTick = 0;
 int framesSkippedCount = 0;
 char *romFileName = 0;
 char romFileNameFullPath[_MAX_PATH];
+char romFileNameLastSelected[_MAX_PATH];
 char cwd[_MAX_PATH];
 
 
@@ -537,7 +538,7 @@ uint32 readJoypadButtons()
         printf ("Debug mode = %d\n", GPU3DS.enableDebug);
     }
 
-    if (keysDown & (KEY_L))
+    /*if (keysDown & (KEY_L))
     {
         csndTicksPerSecond -= 1000;
         printf ("CSND TPS: %d\n", csndTicksPerSecond);
@@ -546,7 +547,7 @@ uint32 readJoypadButtons()
     {
         csndTicksPerSecond += 1000;
         printf ("CSND TPS: %d\n", csndTicksPerSecond);
-    }
+    }*/
     // -----------------------------------------------
 #endif    
 
@@ -806,6 +807,46 @@ void settingsReadWrite(FILE *fp, char *format, int *value, int minValue, int max
     }
 }
 
+char dummyString[1024];
+void settingsReadWriteString(FILE *fp, char *writeFormat, char *readFormat, char *value)
+{
+    //if (strlen(format) == 0)
+    //    return;
+
+    if (settingsWriteMode)
+    {
+        if (value != NULL)
+        {
+            //printf ("Writing %s %d\n", format, *value);
+        	fprintf(fp, writeFormat, value);
+        }
+        else
+        {
+            //printf ("Writing %s\n", format);
+        	fprintf(fp, writeFormat);
+        }
+    }
+    else
+    {
+        if (value != NULL)
+        {
+            fscanf(fp, readFormat, value);
+            char c;
+            fscanf(fp, "%c", &c);
+            //printf ("Scanned %s\n", value);
+        }
+        else
+        {
+            fscanf(fp, readFormat);
+            char c;
+            fscanf(fp, "%c", &c);
+            //fscanf(fp, "%s", dummyString);
+            //printf ("skipped line\n");
+        }
+    }
+}
+
+
 //----------------------------------------------------------------------
 // Read/write all possible game specific settings.
 //----------------------------------------------------------------------
@@ -848,6 +889,10 @@ void settingsReadWriteFullListGlobal(FILE *fp)
     settingsReadWrite(fp, "ScreenStretch=%d\n", &settings3DS.ScreenStretch, 0, 2);
     settingsReadWrite(fp, "HideUnnecessaryBottomScrText=%d\n", &settings3DS.HideUnnecessaryBottomScrText, 0, 1);
 
+    // Fixes the bug where we have spaces in the directory name
+    settingsReadWriteString(fp, "Dir=%s\n", "Dir=%1000[^\n]s\n", cwd);
+    settingsReadWriteString(fp, "ROM=%s\n", "ROM=%1000[^\n]s\n", romFileNameLastSelected);
+
     // All new options should come here!
 }
 
@@ -886,27 +931,30 @@ void settingsUpdateMenuCheckboxes()
 //----------------------------------------------------------------------
 // Save settings by game.
 //----------------------------------------------------------------------
-bool settingsSave()
+bool settingsSave(bool includeGameSettings = true)
 {
     consoleClear();
     ui3dsSetColor(0x3f7fff, 0);
     ui3dsDrawString(100, 140, 220, true, "Saving settings to SD card...");
     
-    FILE *fp = fopen(S9xGetFilename(".cfg"), "w+");
-    //printf ("write fp = %x\n", (uint32)fp);
-    if (fp != NULL)
+    if (includeGameSettings)
     {
-        settingsWriteMode = true;
-        settingsReadWriteFullListByGame(fp);
-        fclose(fp);
-    }
-    else
-    {
-        ui3dsDrawString(100, 140, 220, true, "");
-        return false;
+        FILE *fp = fopen(S9xGetFilename(".cfg"), "w+");
+        //printf ("write fp = %x\n", (uint32)fp);
+        if (fp != NULL)
+        {
+            settingsWriteMode = true;
+            settingsReadWriteFullListByGame(fp);
+            fclose(fp);
+        }
+        else
+        {
+            ui3dsDrawString(100, 140, 220, true, "");
+            return false;
+        }
     }
 
-    fp = fopen("./snes9x_3ds.cfg", "w+");
+    FILE *fp = fopen("./snes9x_3ds.cfg", "w+");
     //printf ("write fp = %x\n", (uint32)fp);
     if (fp != NULL)
     {
@@ -920,13 +968,14 @@ bool settingsSave()
         return false;
     }
     ui3dsDrawString(100, 140, 220, true, "");
+
     return true;
 }
 
 //----------------------------------------------------------------------
 // Load settings by game. 
 //----------------------------------------------------------------------
-bool settingsLoad()
+bool settingsLoad(bool includeGameSettings = true)
 {
     FILE *fp = fopen("./snes9x_3ds.cfg", "r");
     //printf ("fp = %x\n", (uint32)fp);
@@ -939,54 +988,58 @@ bool settingsLoad()
     else
         return false;
     
-    fp = fopen(S9xGetFilename(".cfg"), "r");
-    if (fp == NULL) fp = fopen("romfs:/rom.cfg", "r");
-    //printf ("fp = %x\n", (uint32)fp);
-    if (fp != NULL)
+
+    if (includeGameSettings)
     {
-        settingsWriteMode = false;
-        settingsReadWriteFullListByGame(fp);
+        fp = fopen(S9xGetFilename(".cfg"), "r");
+        if (fp == NULL) fp = fopen("romfs:/rom.cfg", "r");
+        //printf ("fp = %x\n", (uint32)fp);
+        if (fp != NULL)
+        {
+            settingsWriteMode = false;
+            settingsReadWriteFullListByGame(fp);
 
-        if (settingsUpdateAllSettings())
-            settingsSave();
-        settingsUpdateMenuCheckboxes();
+            if (settingsUpdateAllSettings())
+                settingsSave();
+            settingsUpdateMenuCheckboxes();
 
-        // Bug fix: Oops... forgot to close this file!
-        //
-        fclose(fp);
-        return true;
-    }
-    else
-    {
-        // If we can't find the saved settings, always
-        // set the frame rate to be based on the ROM's region.
-        // For the rest of the settings, we use whatever has been
-        // set in the previous game.
-        //
-        settings3DS.ForceFrameRate = 0;
-        settings3DS.Volume = 4;
+            // Bug fix: Oops... forgot to close this file!
+            //
+            fclose(fp);
+            return true;
+        }
+        else
+        {
+            // If we can't find the saved settings, always
+            // set the frame rate to be based on the ROM's region.
+            // For the rest of the settings, we use whatever has been
+            // set in the previous game.
+            //
+            settings3DS.ForceFrameRate = 0;
+            settings3DS.Volume = 4;
 
-        for (int i = 0; i < 6; i++)     // and clear all turbo buttons.
-            settings3DS.Turbo[i] = 0; 
+            for (int i = 0; i < 6; i++)     // and clear all turbo buttons.
+                settings3DS.Turbo[i] = 0; 
 
-        if (SNESGameFixes.PaletteCommitLine == -2)
-            settings3DS.PaletteFix = 1;
-        else if (SNESGameFixes.PaletteCommitLine == 1)
-            settings3DS.PaletteFix = 2;
-        else if (SNESGameFixes.PaletteCommitLine == -1)
-            settings3DS.PaletteFix = 3;
+            if (SNESGameFixes.PaletteCommitLine == -2)
+                settings3DS.PaletteFix = 1;
+            else if (SNESGameFixes.PaletteCommitLine == 1)
+                settings3DS.PaletteFix = 2;
+            else if (SNESGameFixes.PaletteCommitLine == -1)
+                settings3DS.PaletteFix = 3;
 
-        if (Settings.AutoSaveDelay == 60)
-            settings3DS.SRAMSaveInterval = 1;
-        else if (Settings.AutoSaveDelay == 600)
-            settings3DS.SRAMSaveInterval = 2;
-        else if (Settings.AutoSaveDelay == 3600)
-            settings3DS.SRAMSaveInterval = 3;
+            if (Settings.AutoSaveDelay == 60)
+                settings3DS.SRAMSaveInterval = 1;
+            else if (Settings.AutoSaveDelay == 600)
+                settings3DS.SRAMSaveInterval = 2;
+            else if (Settings.AutoSaveDelay == 3600)
+                settings3DS.SRAMSaveInterval = 3;
 
-        settingsUpdateAllSettings();
-        settingsUpdateMenuCheckboxes();
+            settingsUpdateAllSettings();
+            settingsUpdateMenuCheckboxes();
 
-        return settingsSave();
+            return settingsSave();
+        }
     }
 }
 
@@ -1003,6 +1056,7 @@ void menuSetupCheats();  // forward declaration
 void snesLoadRom()
 {
     consoleClear();
+    settingsSave(false);
     snprintf(romFileNameFullPath, _MAX_PATH, "romfs:/rom.smc");
 
     bool loaded = Memory.LoadROM(romFileNameFullPath);
@@ -1143,6 +1197,18 @@ void fileGetAllFiles(void)
 }
 
 
+//----------------------------------------------------------------------
+// Find the ID of the last selected file in the file list.
+//----------------------------------------------------------------------
+int fileFindLastSelectedFile()
+{
+    for (int i = 0; i < totalRomFileCount && i < 1000; i++)
+    {
+        if (strncmp(fileMenu[i].Text, romFileNameLastSelected, _MAX_PATH) == 0)
+            return i;
+    }
+    return -1;
+}
 
 
 
@@ -1241,12 +1307,15 @@ void menuSelectFile(void)
     optionMenuCount = sizeof(optionMenu) / sizeof(SMenuItem);
     
     fileGetAllFiles();
+    int previousFileID = fileFindLastSelectedFile();
     S9xClearMenuTabs();
     S9xAddTab("Emulator", emulatorNewMenu, emulatorMenuCount);
     S9xAddTab("Select ROM", fileMenu, totalRomFileCount);
     S9xSetTabSubTitle(0, NULL);
     S9xSetTabSubTitle(1, cwd);
     S9xSetCurrentMenuTab(1);
+    if (previousFileID >= 0)
+        S9xSetSelectedItemIndexByID(1, previousFileID);
     S9xSetTransferGameScreen(false);
 
     int selection = 0;
@@ -1263,6 +1332,7 @@ void menuSelectFile(void)
             // Load ROM
             //
             romFileName = romFileNames[selection];
+            strncpy(romFileNameLastSelected, romFileName, _MAX_PATH);
             if (romFileName[0] == 1)
             {
                 if (strcmp(romFileName, "\x01 ..") == 0)
@@ -1371,6 +1441,7 @@ void menuPause()
             }
             else
             {
+                strncpy(romFileNameLastSelected, romFileName, _MAX_PATH);
                 loadRomBeforeExit = true;
                 break;
             }
@@ -1397,7 +1468,10 @@ void menuPause()
             
             sprintf(s, ".%d.frz", slot);
             if (S9xLoadSnapshot(S9xGetFilename (s)))
-            {     
+            {    
+                for (int i = 0; i < 8; i++)
+                    SNESGameFixes.SpeedHackPatched[i] = 0;
+                SNESGameFixes.SpeedHackPatchTryCount = 10;
                 gpu3dsInitializeMode7Vertexes();
                 gpu3dsCopyVRAMTilesIntoMode7TileVertexes(Memory.VRAM);
                 debugFrameCounter = 0;
@@ -1652,6 +1726,9 @@ bool snesInitialize()
 //--------------------------------------------------------
 void emulatorInitialize()
 {
+    getcwd(cwd, 1023);
+    romFileNameLastSelected[0] = 0;
+    
     if (!gpu3dsInitialize())
     {
         printf ("Unable to initialized GPU\n");
@@ -1681,6 +1758,10 @@ void emulatorInitialize()
         
     ptmSysmInit ();
     osSetSpeedupEnable(1);    // Performance: use the higher clock speed for new 3DS.
+
+    settingsLoad(false);
+    if (cwd[0] == 0)
+        getcwd(cwd, 1023);
 }
 
 
@@ -1847,13 +1928,14 @@ void snesEmulatorLoop()
         ui3dsSetColor(0x7f7f7f, 0);
         ui3dsDrawString(100, 100, 220, true, "Touch screen for menu");
     }
-    
+
     snd3dsStartPlaying();
 
 	while (aptMainLoop())
 	{
         t3dsStartTiming(1, "aptMainLoop");
 
+        Memory.ApplySpeedHackPatches();
         startFrameTick = svcGetSystemTick();
         
         APT_AppStatus appStatus = aptGetStatus();
@@ -1873,10 +1955,18 @@ void snesEmulatorLoop()
 	    gpu3dsUseShader(2);             // for drawing tiles             
 
 #ifdef RELEASE
-        S9xMainLoop();
+        if (!Settings.SA1)
+            S9xMainLoop();
+        else
+            S9xMainLoopWithSA1();
 #else
         if (!Settings.Paused)
-            S9xMainLoop();
+        {
+            if (!Settings.SA1)
+                S9xMainLoop();
+            else
+                S9xMainLoopWithSA1();
+        }
 #endif
 /*
         if (IPPU.RenderThisFrame)
@@ -2228,7 +2318,7 @@ void testGPU()
         }
         else if (testMode == 12)
         {
-            gpu3dsSetRenderTargetToOBJLayer();
+            //gpu3dsSetRenderTargetToOBJLayer();
             gpu3dsSetTextureEnvironmentReplaceColor();
             gpu3dsDisableDepthTest();
             gpu3dsDisableAlphaTest();
@@ -2254,7 +2344,7 @@ void testGPU()
             gpu3dsSetRenderTargetToMainScreenTexture();
 
             gpu3dsSetTextureEnvironmentReplaceTexture0();
-            gpu3dsBindTextureOBJLayer(GPU_TEXUNIT0);
+            //gpu3dsBindTextureOBJLayer(GPU_TEXUNIT0);
             gpu3dsDisableDepthTest();
             gpu3dsEnableAlphaTestEquals((objPart % 4) * 64);
             objPart = (objPart + 1) % 4;

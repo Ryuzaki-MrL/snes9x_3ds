@@ -115,7 +115,7 @@
 #include "spc7110.h"
 #include "seta.h"
 
-//#include "unzip.h"
+#include "unzip.h"
 
 #ifdef __W32_HEAP
 #include <malloc.h>
@@ -2231,6 +2231,18 @@ void CMemory::HiROMMap ()
 	for (j=0; j<4; j++)
 		mask[j]=0x00ff;
 
+	// Bug in Snes9x 1.43
+	// This isn't really a bug, but a problem with the SNES ROM's size and header
+	// of Wonder Project (EN translation).
+	//
+	// Doing this solves Wonder Project (En), but does this work for all ROMs? 
+	//
+	if (strcmp(ROMId, "APJJ") == 0)
+	{
+		if (((CalculatedSize / 0x10000) * 0x10000) != CalculatedSize)
+			CalculatedSize = ((CalculatedSize / 0x10000) * 0x10000) + 0x10000;
+	}
+
 	mask[0]=(CalculatedSize/0x10000)-1;
 
 	if (Settings.ForceSA1 ||
@@ -3645,27 +3657,17 @@ const char *CMemory::ROMID ()
 // Applies a speed hack at the given the PB:PC location.
 // It replaces the first byte with the WDM (0x42) opcode.
 //
-bool CMemory::ApplySpeedHack(int address, int cyclesPerSkip, int16 originalByte1, int16 originalByte2, int16 originalByte3, int16 originalByte4)
+bool CMemory::SpeedHackAdd(int address, int cyclesPerSkip, int16 originalByte1, int16 originalByte2, int16 originalByte3, int16 originalByte4)
 {
     int     SpeedHackCount;
     int     SpeedHackPCPB[8];               // PB:PC address up to 8 locations.
     uint8   SpeedHackOriginalOpcode[8];     // Original opcode.
     int     SpeedHackCycles[8];             // cycles to add
 	
-	int16 originalBytes[4];
-	originalBytes[0] = originalByte1;
-	originalBytes[1] = originalByte2;
-	originalBytes[2] = originalByte3;
-	originalBytes[3] = originalByte4;
-	
-	// First check that the original bytes matches.
+	// Finally we patch
 	//
-	for (int i = 0; i < 4 && originalBytes[i] != -1; i++)
-	{
-		uint8 byte = S9xGetByte(address + i);
-		if (originalBytes[i] != byte)
-			return false;
-	}
+	if (SNESGameFixes.SpeedHackCount >= 8)
+		return false;
 
 	// Get the actual location of the memory to patch
 	//
@@ -3677,20 +3679,91 @@ bool CMemory::ApplySpeedHack(int address, int cyclesPerSkip, int16 originalByte1
 	if (finalAddress == 0)
 		return false;
 	
-	// Finally we patch
-	//
-	if (SNESGameFixes.SpeedHackCount >= 8)
-		return false;
-
+	SNESGameFixes.SpeedHackOriginalBytes[SNESGameFixes.SpeedHackCount][0] = originalByte1;
+	SNESGameFixes.SpeedHackOriginalBytes[SNESGameFixes.SpeedHackCount][1] = originalByte2;
+	SNESGameFixes.SpeedHackOriginalBytes[SNESGameFixes.SpeedHackCount][2] = originalByte3;
+	SNESGameFixes.SpeedHackOriginalBytes[SNESGameFixes.SpeedHackCount][3] = originalByte4;
+	
+	SNESGameFixes.SpeedHackSNESAddress[SNESGameFixes.SpeedHackCount] = (uint32) address;
 	SNESGameFixes.SpeedHackAddress[SNESGameFixes.SpeedHackCount] = (uint32) finalAddress;
-	SNESGameFixes.SpeedHackOriginalOpcode[SNESGameFixes.SpeedHackCount] = *finalAddress;
+	SNESGameFixes.SpeedHackOriginalOpcode[SNESGameFixes.SpeedHackCount] = originalByte1;
 	SNESGameFixes.SpeedHackCycles[SNESGameFixes.SpeedHackCount] = cyclesPerSkip;
+	SNESGameFixes.SpeedHackPatched[SNESGameFixes.SpeedHackCount] = 0;
 	SNESGameFixes.SpeedHackCount++;
 
-	printf ("Speed hack patched: %06x\n", address);
-	*finalAddress = 0x42;
+	//printf ("Speed hack patched: %06x\n", address);
+	return true;
 }
 
+
+bool CMemory::SpeedHackSetSA1IdleLoopAddress(int address)
+{
+	if (SNESGameFixes.SpeedHackSA1AddressCount >= 8)
+		return false;
+
+	printf ("SA1 Idle Loop Address: %6x\n", address);
+	SNESGameFixes.SpeedHackSA1Address[SNESGameFixes.SpeedHackSA1AddressCount] = (uint32) address;
+	SNESGameFixes.SpeedHackSA1AddressCount++;
+	return true;
+}
+
+
+bool CMemory::ApplySpeedHackPatches()
+{
+	if (SNESGameFixes.SpeedHackPatchTryCount == -1)
+		return true;
+	if (SNESGameFixes.SpeedHackCount == 0)
+		return true;
+		
+	if (SNESGameFixes.SpeedHackPatchTryCount > 0)
+	{
+		bool appliedAll = true;
+		for (int n = 0; n < SNESGameFixes.SpeedHackCount; n++)
+		{
+			if (SNESGameFixes.SpeedHackPatched[n])
+				continue;
+
+			//printf ("Patching speed hack #%d @ %6x\n", n, SNESGameFixes.SpeedHackSNESAddress[n]);
+
+			// First check that the original bytes matches.
+			//
+			bool allMatches = true;
+			printf ("  ");
+			for (int i = 0; i < 4 && SNESGameFixes.SpeedHackOriginalBytes[n][i] != -1; i++)
+			{
+				uint8 byte = S9xGetByte(SNESGameFixes.SpeedHackSNESAddress[n] + i);
+				//printf ("%2x = %2x? ", SNESGameFixes.SpeedHackOriginalBytes[n][i], byte);
+				if (SNESGameFixes.SpeedHackOriginalBytes[n][i] != byte)
+				{
+					allMatches = false;
+					break;
+				}
+			}
+			//printf ("\n");
+
+			if (allMatches)
+			{
+				// Get the actual location of the memory to patch
+				//
+				uint8 *finalAddress = (uint8 *)SNESGameFixes.SpeedHackAddress[n];
+				*finalAddress = 0x42;
+				SNESGameFixes.SpeedHackPatched[n] = 1;
+			}
+			else
+				appliedAll = false;
+		}
+
+		if (appliedAll)
+		{
+			//printf ("All speed hacks patched\n");
+			SNESGameFixes.SpeedHackPatchTryCount = -1;
+		}
+		SNESGameFixes.SpeedHackPatchTryCount --;
+		return appliedAll;
+	}
+	else
+		return false;
+}
 
 void CMemory::ApplyROMFixes ()
 {
@@ -3946,6 +4019,10 @@ void CMemory::ApplyROMFixes ()
 	//is this even useful now?
     if (strcmp (ROMName, "ALIENS vs. PREDATOR") == 0)
 		SNESGameFixes.alienVSpredetorFix = TRUE;
+
+	// Fixes CuOnPa
+    if (strcmp (ROMId, "AC6J") == 0)
+		SNESGameFixes.cuonpaFix = TRUE;
 		
     if (strcmp (ROMName, "\xBD\xB0\xCA\xDF\xB0\xCC\xA7\xD0\xBD\xC0") == 0 ||  //Super Famista
 		strcmp (ROMName, "\xBD\xB0\xCA\xDF\xB0\xCC\xA7\xD0\xBD\xC0 2") == 0 || //Super Famista 2
@@ -4349,22 +4426,38 @@ void CMemory::ApplyROMFixes ()
 	// May load from a file in the future
 	//
 	SNESGameFixes.SpeedHackCount = 0;
+	SNESGameFixes.SpeedHackSA1AddressCount = 0;
+	SNESGameFixes.SpeedHackPatchTryCount = 1;
 	if (strcmp (ROMName, "YOSHI'S ISLAND") == 0)
 	{
-		ApplySpeedHack(0x0080F4, 54, 0x30, 0xfb, -1, -1);  // US + EUR version
+		SpeedHackAdd(0x0080F4, 54, 0x30, 0xfb, -1, -1);  // US + EUR version
 	}
 	if (strcmp (ROMName, "SUPER MARIO KART") == 0)
 	{
-		ApplySpeedHack(0x80805E, 46, 0xf0, 0xfc, -1, -1);  // US + EUR version
+		SpeedHackAdd(0x80805E, 46, 0xf0, 0xfc, -1, -1);  // US + EUR version
 	}
 	if (strcmp (ROMName, "F-ZERO") == 0)
 	{
-		ApplySpeedHack(0x00803C, 46, 0xf0, 0xfc, -1, -1);  // US + EUR version
+		SpeedHackAdd(0x00803C, 46, 0xf0, 0xfc, -1, -1);  // US + EUR version
 	}
 	if (strcmp (ROMName, "AXELAY") == 0)
 	{
-		ApplySpeedHack(0x00893D, -1, 0xf0, 0xdb, -1, -1);  // US + EUR version
+		SpeedHackAdd(0x00893D, -1, 0xf0, 0xdb, -1, -1);  // US + EUR version
 	}
+	if (strcmp (ROMName, "SUPER MARIO RPG") == 0)
+	{
+		/*SpeedHackAdd(0xC302FF, -1, 0xf0, 0xfc, -1, -1);  // US version
+		SpeedHackAdd(0x7EFA04, -1, 0xf0, 0xfa, -1, -1);  
+		SpeedHackAdd(0x7FF7AA, -1, 0xD0, 0xFB, -1, -1);
+		SpeedHackAdd(0x7FF7CC, -1, 0xF0, 0xF8, -1, -1);
+		SpeedHackAdd(0x7FF77B, -1, 0xF0, 0xF8, -1, -1);
+		SpeedHackAdd(0x000806, -1, 0xD0, 0xFB, -1, -1);
+		SpeedHackAdd(0xC202E9, -1, 0xD0, 0xFB, -1, -1);
+		SpeedHackSetSA1IdleLoopAddress(0xC08171);
+		SpeedHackSetSA1IdleLoopAddress(0xC0816F);
+		SNESGameFixes.SpeedHackPatchTryCount = 60;*/
+	}
+	ApplySpeedHackPatches();
 	/*if (strcmp (ROMName, "CONTRA3 THE ALIEN WAR") == 0)
 	{
 		ApplySpeedHack(0x009961, -1, 0xd0, 0x0d, -1, -1);  // US + EUR version

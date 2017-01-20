@@ -767,6 +767,14 @@ void S9xSetPPU (uint8 Byte, uint16 Address)
 			break;
 		  case 0x212c:
 			// Main screen designation (backgrounds 1 - 4 and objects)
+
+			// Defer the write. This is ok since the read of this register
+			// returns the Open Bus value.
+			// 
+			IPPU.DeferredRegisterWrite[Address - 0x2100] = Byte;
+			return;		
+
+			/*			
 			if (Byte != Memory.FillRAM [0x212c])
 			{
 				DEBUG_FLUSH_REDRAW(Address, Byte); FLUSH_REDRAW ();
@@ -774,9 +782,18 @@ void S9xSetPPU (uint8 Byte, uint16 Address)
 				Memory.FillRAM [Address] = Byte;
 				return;
 			}
-			break;
+			break;*/
+
 		  case 0x212d:
 			// Sub-screen designation (backgrounds 1 - 4 and objects)
+
+			// Defer the write. This is ok since the read of this register
+			// returns the Open Bus value.
+			// 
+			IPPU.DeferredRegisterWrite[Address - 0x2100] = Byte;
+			return;		
+
+			/*			
 			if (Byte != Memory.FillRAM [0x212d])
 			{
 				DEBUG_FLUSH_REDRAW(Address, Byte); FLUSH_REDRAW ();
@@ -788,25 +805,52 @@ void S9xSetPPU (uint8 Byte, uint16 Address)
 				Memory.FillRAM [Address] = Byte;
 				return;
 			}
-			break;
+			break;*/
+
 		  case 0x212e:
 			// Window mask designation for main screen ?
+
+			// Defer the write. This is ok since the read of this register
+			// returns the Open Bus value.
+			// 
+			IPPU.DeferredRegisterWrite[Address - 0x2100] = Byte;
+			return;		
+
+			/*			
 			if (Byte != Memory.FillRAM [0x212e])
 			{
 				DEBUG_FLUSH_REDRAW(Address, Byte); FLUSH_REDRAW ();
 				PPU.RecomputeClipWindows = TRUE;
 			}
-			break;
+			break;*/
+			
 		  case 0x212f:
 			// Window mask designation for sub-screen ?
+
+			// Defer the write. This is ok since the read of this register
+			// returns the Open Bus value.
+			// 
+			IPPU.DeferredRegisterWrite[Address - 0x2100] = Byte;
+			return;		
+
+			/*
 			if (Byte != Memory.FillRAM [0x212f])
 			{
 				DEBUG_FLUSH_REDRAW(Address, Byte); FLUSH_REDRAW ();
 				PPU.RecomputeClipWindows = TRUE;
 			}
-			break;
+			break;*/
+
 		  case 0x2130:
 			// Fixed colour addition or screen addition
+
+			// Defer the write. This is ok since the read of this register
+			// returns the Open Bus value.
+			// 
+			IPPU.DeferredRegisterWrite[Address - 0x2100] = Byte;
+			return;		
+
+/*
 			if (Byte != Memory.FillRAM [0x2130])
 			{
 				DEBUG_FLUSH_REDRAW(Address, Byte); FLUSH_REDRAW ();
@@ -816,9 +860,18 @@ void S9xSetPPU (uint8 Byte, uint16 Address)
 					missing.direct = 1;
 #endif
 			}
-			break;
+			break;*/
+
 		  case 0x2131:
 			// Colour addition or subtraction select
+
+			// Defer the write. This is ok since the read of this register
+			// returns the Open Bus value.
+			// 
+			IPPU.DeferredRegisterWrite[Address - 0x2100] = Byte;
+			return;		
+
+			/*			
 			if (Byte != Memory.FillRAM[0x2131])
 			{
 				DEBUG_FLUSH_REDRAW(Address, Byte); FLUSH_REDRAW ();
@@ -843,7 +896,7 @@ void S9xSetPPU (uint8 Byte, uint16 Address)
 #endif
 				Memory.FillRAM[0x2131] = Byte;
 			}
-			break;
+			break; */
 		  case 0x2132:
 			if (Byte != Memory.FillRAM [0x2132])
 			{
@@ -1686,8 +1739,16 @@ void S9xSetCPU (uint8 byte, uint16 Address)
 			if ((byte & 0x80) && 
 				!(Memory.FillRAM [0x4200] & 0x80) &&
 				CPU.V_Counter >= PPU.ScreenHeight + FIRST_VISIBLE_LINE &&
+				
+				// Bug in SNES9x v1.43
+				// NMI can trigger during VBlank as long as NMI_read ($4210) wasn't cleared.
+				// This fixes Cu-On-Pa SFC. But since this cannot be applied to all games
+				// we created a setting in SNESGameFixes to apply this fix only
+				// to Cu-On-Pa. (If we allow NMI to fire anytime in V-Blank, 
+				// Super Mario World 2's title screen becomes corrupted!)
+				//
 				CPU.V_Counter <= PPU.ScreenHeight + 
-				(SNESGameFixes.alienVSpredetorFix ? 25 : 15) &&   //jyam 15->25 alien vs predetor
+				(SNESGameFixes.cuonpaFix ? 35 : SNESGameFixes.alienVSpredetorFix ? 25 : 15) &&   //jyam 15->25 alien vs predetor
 // Panic Bomberman clears the NMI pending flag @ scanline 230 before enabling
 // NMIs again. The NMI routine crashes the CPU if it is called without the NMI
 // pending flag being set...
@@ -2706,8 +2767,10 @@ void S9xResetPPU ()
 
 	Memory.FillRAM[0x4201]=Memory.FillRAM[0x4213]=0xFF;
 
+	for (int i = 0; i < 0x100; i++)
+		IPPU.DeferredRegisterWrite[i] = 0xff00;	
+		
 	S9xInitializeVerticalSections();
-
 }
 
 
@@ -2914,6 +2977,9 @@ void S9xSoftResetPPU ()
 	ZeroMemory (&Memory.FillRAM [0x1000], 0x1000);
 
 	Memory.FillRAM[0x4201]=Memory.FillRAM[0x4213]=0xFF;
+
+	for (int i = 0; i < 0x100; i++)
+		IPPU.DeferredRegisterWrite[i] = 0xff00;	
 
 	S9xInitializeVerticalSections();
 }

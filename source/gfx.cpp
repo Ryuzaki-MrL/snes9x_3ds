@@ -280,8 +280,9 @@ void DrawClippedTileOBJ16 (uint32 Tile, uint32 Offset,
 			uint32 StartPixel, uint32 Width,
 			uint32 StartLine, uint32 LineCount);
 
-
-			
+#define DrawTileLater(Tile, Offset, StartLine, LineCount) 
+#define DrawClippedTileLater(Tile, Offset, StartPixel, Width, StartLine, LineCount) 
+	/*		
 #define DrawTileLater(Tile, Offset, StartLine, LineCount) \
 	{ \
 		BG.DrawTileParameters[bg][BG.DrawTileCount[bg]][0] = 0; \
@@ -329,7 +330,7 @@ void DrawClippedTileOBJ16 (uint32 Tile, uint32 Offset,
 		BG.DrawOBJTileLaterParameters[newIndex][5] = StartLine; \
 		BG.DrawOBJTileLaterParameters[newIndex][6] = LineCount; \
 	}
-	
+	*/
 										 
 bool8 S9xGraphicsInit ()
 {
@@ -1332,6 +1333,8 @@ void S9xSetupOBJ ()
 #ifdef MK_DEBUG_RTO
 		if(Settings.BGLayering) fprintf(stderr, "normal FirstSprite = %02x\n", PPU.FirstSprite);
 #endif
+		PPU.PriorityDrawFromSprite = PPU.FirstSprite;
+
 		/* normal case */
 		memset(LineOBJ, 0, sizeof(LineOBJ));
 		for(int i=0; i<SNES_HEIGHT_EXTENDED; i++){
@@ -1391,6 +1394,7 @@ void S9xSetupOBJ ()
 #ifdef MK_DEBUG_RTO
 		if(Settings.BGLayering) fprintf(stderr, "FirstSprite+Y\n");
 #endif
+		PPU.PriorityDrawFromSprite = -1;
 
 		/* First, find out which sprites are on which lines */
 		memset(OBJOnLine, 0, sizeof(OBJOnLine));
@@ -2634,6 +2638,7 @@ void DrawBackgroundPriority1 (uint32 BGMode, uint32 bg)
     }
     CHECK_SOUND();
 	*/
+	/*
     if (BGMode == 0)
 		BG.StartPalette = bg << 5;
     else BG.StartPalette = 0;
@@ -2655,7 +2660,7 @@ void DrawBackgroundPriority1 (uint32 BGMode, uint32 bg)
 				BG.DrawTileParameters[bg][i][4], BG.DrawTileParameters[bg][i][5], BG.DrawTileParameters[bg][i][6]);
 		}
 	}
-	
+	*/
 }
 
 
@@ -2674,7 +2679,7 @@ void DrawBackground (uint32 BGMode, uint32 bg, uint8 Z1, uint8 Z2, int priority)
     BG.PaletteMask = PaletteMasks[BGMode][bg];
     BG.DirectColourMode = (BGMode == 3 || BGMode == 4) && bg == 0 &&
 		(GFX.r2130 & 1);
-	BG.DrawTileCount[bg] = 0;
+	//BG.DrawTileCount[bg] = 0;
 	
     if (PPU.BGMosaic [bg] && PPU.Mosaic > 1)
     {
