@@ -437,7 +437,7 @@ bool8 S9xGraphicsInit ()
     if (Settings.SixteenBit)
 	GFX.ZPitch >>= 1;
     GFX.Delta = (GFX.SubScreen - GFX.Screen) >> 1;
-	printf ("GFX.Delta = %d\n", GFX.Delta);
+	//printf ("GFX.Delta = %d\n", GFX.Delta);
     GFX.DepthDelta = GFX.SubZBuffer - GFX.ZBuffer;
     //GFX.InfoStringTimeout = 0;
     //GFX.InfoString = NULL;
@@ -471,6 +471,7 @@ bool8 S9xGraphicsInit ()
     }
     S9xFixColourBrightness ();
 
+/*
     if (Settings.SixteenBit)
     {
 	if (!(GFX.X2 = (uint16 *) malloc (sizeof (uint16) * 0x10000)))
@@ -620,13 +621,25 @@ bool8 S9xGraphicsInit ()
 	    }
 	}
     }
-    else
+    else */
     {
 		GFX.X2 = NULL;
 		GFX.ZERO_OR_X2 = NULL;
 		GFX.ZERO = NULL;
     }
 	
+	
+	// Form the RGB5551 to RGBA4 (16-bit) colour lookup table
+	//
+	for (int i = 0; i < 0x10000; i++)
+	{
+		int R = (i >> 12) & 0xf;
+		int G = (i >> 7) & 0xf;
+		int B = (i >> 2) & 0xf;
+		int A = 0xf;
+
+		GFX.ScreenRGB555toRGBA4[i] = (R << 12) | (G << 8) | (B << 4) | A;
+	}
 	
 
     return (TRUE);
@@ -977,7 +990,10 @@ void S9xEndScreenRefresh ()
 	// Update the save SRAM timer logic.
 	if (CPU.SRAMModified)
 	{
-		if (CPU.AutoSaveTimer > 0)
+		// Fixed SRAM saving logic
+		// Can't remember what I used AccumulatedAutoSaveTimer for!
+		//
+		/*if (CPU.AutoSaveTimer > 0)
 		{
 			if (CPU.AccumulatedAutoSaveTimer <= 3600 * 5)  
 			{
@@ -995,13 +1011,12 @@ void S9xEndScreenRefresh ()
 				CPU.AccumulatedAutoSaveTimer = 0;
 				CPU.AutoSaveTimer = 1;
 			}
-		}
-		else
+		}*/
+		if (CPU.AutoSaveTimer == 0)
 		{
-			CPU.AccumulatedAutoSaveTimer = 0;
+			//CPU.AccumulatedAutoSaveTimer = 0;
 			CPU.AutoSaveTimer = Settings.AutoSaveDelay;		// Auto-save SRAM in x frames.
 		}
-		CPU.SRAMModified = false;
 	}
 
 	if (CPU.AutoSaveTimer > 0)
@@ -1010,7 +1025,7 @@ void S9xEndScreenRefresh ()
 		if (CPU.AutoSaveTimer == 0)
 		{
 			S9xAutoSaveSRAM ();
-			CPU.AccumulatedAutoSaveTimer = 0;
+			//CPU.AccumulatedAutoSaveTimer = 0;
 		}		
 	}
 }

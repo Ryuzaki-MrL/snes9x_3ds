@@ -949,7 +949,11 @@ void S9xSetPPU (uint8 Byte, uint16 Address)
 #endif
 				//if((Byte & 1)&&(PPU.BGMode==5||PPU.BGMode==6))
 				//IPPU.Interlace=1;
-				if((Memory.FillRAM [0x2133] ^ Byte)&3)
+
+				// Bug fix: Make sure we also flush redraw if there's a change
+				// to the pseudo hi-res flag
+				//
+				if((Memory.FillRAM [0x2133] ^ Byte)&(3 | 8))
 				{
 					DEBUG_FLUSH_REDRAW(Address, Byte); FLUSH_REDRAW ();
 					if((Memory.FillRAM [0x2133] ^ Byte)&2)
@@ -2704,7 +2708,7 @@ void S9xResetPPU ()
 		GFX.PaletteFrame4[i] = 1;
 	}
 	GFX.PaletteFrame256[0] = 1;
-	ZeroMemory (GFX.VRAMPaletteFrame, 65536 * 16 * 4);
+	ZeroMemory (GFX.VRAMPaletteFrame, 8192 * 16 * 4);
 	IPPU.HiresFlip = 0;
 
 #ifdef CORRECT_VRAM_READS
@@ -2927,7 +2931,7 @@ void S9xSoftResetPPU ()
 		GFX.PaletteFrame4[i] = 1;
 	}
 	GFX.PaletteFrame256[0] = 1;
-	ZeroMemory (GFX.VRAMPaletteFrame, 65536 * 16 * 4);
+	ZeroMemory (GFX.VRAMPaletteFrame, 8192 * 16 * 4);
 	IPPU.HiresFlip = 0;
 
 #ifdef CORRECT_VRAM_READS

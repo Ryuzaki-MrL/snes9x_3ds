@@ -87,7 +87,34 @@
   Nintendo Co., Limited and its subsidiary companies.
 *******************************************************************************/
 
+/*
+#include "snes9x.h"
+#include "memmap.h"
+#include "cpuops.h"
+#include "ppu.h"
+#include "cpuexec.h"
+#include "debug.h"
+#include "snapshot.h"
+#include "gfx.h"
+#include "missing.h"
+#include "apu.h"
+#include "dma.h"
+#include "fxemu.h"
+#include "sa1.h"
+#include "spc7110.h"
 
+#include "3dsgpu.h"
+#include "3dsopt.h"
+#include "3dssnes9x.h"
+
+
+register SOpcodes *fastOpcodes asm ("r11");
+register long fastCPUCycles asm ("r10");
+register uint8 *fastCPUPC asm ("r9");
+
+#define CPU_Cycles 		fastCPUCycles
+#define CPU_PC   		fastCPUPC
+*/
 
 START_EXTERN_C
 extern uint8 A1, A2, A3, A4, W1, W2, W3, W4;
@@ -141,7 +168,7 @@ long TempInt32;
     Other functions
 ***********************************************************************************************/
 
-STATIC inline void CpuLoadFastRegisters ()
+STATIC inline void  __attribute__((always_inline)) CpuLoadFastRegisters ()
 {
 #ifdef CPUCYCLES_REGISTERS
     //printf ("  Load cycles: %d\n", CPU.Cycles);
@@ -150,7 +177,7 @@ STATIC inline void CpuLoadFastRegisters ()
 #endif
 }
 
-STATIC inline void CpuSaveFastRegisters ()
+STATIC inline void  __attribute__((always_inline)) CpuSaveFastRegisters ()
 {
 #ifdef CPUCYCLES_REGISTERS
     CPU.Cycles = fastCPUCycles;
@@ -161,7 +188,7 @@ STATIC inline void CpuSaveFastRegisters ()
 }
 
 
-STATIC inline void CpuFixCycles ()
+STATIC inline void  __attribute__((always_inline)) CpuFixCycles ()
 {
 #ifdef OPCODE_REGISTERS
 #define ASSIGN_OPCODES(x)  fastOpcodes = ICPU.S9xOpcodes = x;
@@ -199,7 +226,7 @@ STATIC inline void CpuFixCycles ()
 }
 
 
-INLINE void CpuSetPCBase (uint32 Address)
+INLINE void  __attribute__((always_inline)) CpuSetPCBase (uint32 Address)
 {
     int block;
     uint8 *GetAddress = Memory.Map [block = (Address >> MEMMAP_SHIFT) & MEMMAP_MASK];
@@ -340,6 +367,34 @@ INLINE void __attribute__((always_inline)) CpuSetByte (uint8 Byte, uint32 Addres
 }
 
 
+INLINE void __attribute__((always_inline)) CpuSetByteWakeSA1 (uint8 Byte, uint32 Address)
+{
+    int block;
+    uint8 *SetAddress = CPU.MemoryWriteMap [block = ((Address >> MEMMAP_SHIFT) & MEMMAP_MASK)];
+
+    CPU_Cycles += CPU.MemorySpeed [block];
+	
+    if (SetAddress >= (uint8 *) CMemory::MAP_LAST)
+    {
+        *(SetAddress + (Address & 0xffff)) = Byte;
+
+ 		if (SetAddress == SA1.WaitByteAddress1 ||
+			SetAddress == SA1.WaitByteAddress2)
+		{
+            SA1.Executing = !SA1.Waiting;
+			//SA1.Executing = SA1.S9xOpcodes != NULL;
+			//SA1.WaitCounter = 0;
+		}       
+
+        return;
+    }
+
+    CpuSaveFastRegisters();
+    S9xSetByteToRegister(Byte, SetAddress, Address);
+    CpuLoadFastRegisters();
+}
+
+
 
 INLINE void __attribute__((always_inline)) CpuSetWord (uint16 Word, uint32 Address)
 {
@@ -356,6 +411,44 @@ INLINE void __attribute__((always_inline)) CpuSetWord (uint16 Word, uint32 Addre
             return;
         }	
             
+        CpuSaveFastRegisters();
+        S9xSetWordToRegister(Word, SetAddress, Address);
+        CpuLoadFastRegisters();
+
+    }
+    else
+    {
+        CpuSetByte(Word&0x00FF, Address);
+        CpuSetByte(Word>>8, Address+1);
+        return;
+    }
+
+}
+
+
+INLINE void __attribute__((always_inline)) CpuSetWordWakeSA1 (uint16 Word, uint32 Address)
+{
+    if((Address & 0x0FFF)!=0x0FFF)
+    {
+        int block;
+        uint8 *SetAddress = CPU.MemoryWriteMap [block = ((Address >> MEMMAP_SHIFT) & MEMMAP_MASK)];
+
+        CPU_Cycles += CPU.MemorySpeed [block] << 1;
+
+        if (SetAddress >= (uint8 *) CMemory::MAP_LAST)
+        {
+            *(uint16 *) (SetAddress + (Address & 0xffff)) = Word;
+
+            if (SetAddress == SA1.WaitByteAddress1 ||
+                SetAddress == SA1.WaitByteAddress2)
+            {
+                SA1.Executing = !SA1.Waiting;
+                //SA1.Executing = SA1.S9xOpcodes != NULL;
+                //SA1.WaitCounter = 0;
+            }       
+
+            return;
+        }	
         CpuSaveFastRegisters();
         S9xSetWordToRegister(Word, SetAddress, Address);
         CpuLoadFastRegisters();
@@ -6033,6 +6126,9 @@ void S9xOpcode_IRQ (void)
     if (CPU.Flags & TRACE_FLAG)
 	S9xTraceMessage ("*** IRQ");
 #endif
+    SA1.isInIdleLoop = false;
+    //SA1.Executing = !SA1.Waiting;
+
     if (!CheckEmulation())
     {
 	PushB (Registers.PB);
@@ -6101,6 +6197,9 @@ void S9xOpcode_NMI (void)
     if (CPU.Flags & TRACE_FLAG)
 	S9xTraceMessage ("*** NMI");
 #endif
+    SA1.isInIdleLoop = false;
+    //SA1.Executing = !SA1.Waiting;
+
     if (!CheckEmulation())
     {
 	PushB (Registers.PB);
@@ -6583,26 +6682,6 @@ static void OpCB (void)
             else if ((CPU.Flags & IRQ_PENDING_FLAG) && (CPU.IRQCycleCount == 0) && CheckFlag (IRQ))
                 skip = true;
             
-            // Checks if the current ROM uses SA-1. If so, then we must ensure that 
-            // the SA-1's PC is in the list of idle loop addresses before we allow
-            // skipping.
-            //
-            if (Settings.SA1)
-            {
-                bool sa1InIdleLoop = false;
-                uint32 sa1PBPC = (uint32)SA1.PC - (uint32)SA1.PCBase + (uint32) SA1Registers.PB << 16;
-                for (int i = 0; i < SNESGameFixes.SpeedHackSA1AddressCount; i++)
-                {
-                    if (SNESGameFixes.SpeedHackSA1Address[i] == sa1PBPC)
-                    {
-                        sa1InIdleLoop = true;
-                        break;
-                    }
-                }
-                if (!sa1InIdleLoop)
-                    skip = false;
-            }
-
             if (skip)
                 if (CPU_Cycles < OCPU.NextEvent)
                     CPU_Cycles = OCPU.NextEvent;
@@ -6668,23 +6747,25 @@ static void Op42 (void)
     //printf ("  doSkip = %d\n", doSkip);
 
     int foundHackIndex = -1;
+
     // Search for the appropriate speed hack
     //
-    uint32 prevCPUPC = (uint32) CPU_PC - 1;
+    uint8* prevCPUPC = (uint8 *)(CPU_PC - 1);
+    int branchOffset = *(int8 *)(CPU_PC);
 
     // Bug fix: Make sure we check again SpeedHackCount.
     //
     for (int i = 0; i < SNESGameFixes.SpeedHackCount; i++)
     {
-        if (SNESGameFixes.SpeedHackAddress[i] == (uint32)prevCPUPC) 
+        if (SNESGameFixes.SpeedHackAddress[i] == prevCPUPC) 
         { 
             foundHackIndex = i; 
-            //printf ("  @ %6x\n", SNESGameFixes.SpeedHackSNESAddress[i]);
             break; 
         }
     }
 
-    // By right foundHackIndex should never be -1
+    // Some games actually use NOP. So we must ensure
+    // That this is a registered speed hack
     //
     if (foundHackIndex == -1)
     {
@@ -6692,7 +6773,14 @@ static void Op42 (void)
         // we will treat this like a NOP (as it was before)
         //
         doSkip = false;
-        return ;
+        return;
+    }
+
+    if (Settings.SA1)
+    {
+        //printf ("%d", SA1.isInIdleLoop);
+        if (!SA1.isInIdleLoop)
+            doSkip = false;
     }
 
     // Executes the original opcode that we replaced.
@@ -6701,37 +6789,13 @@ static void Op42 (void)
 
     //printf ("  Executed op %2x\n", SNESGameFixes.SpeedHackOriginalOpcode[foundHackIndex]);
 
-    // Checks if the current ROM uses SA-1. If so, then we must ensure that 
-    // the SA-1's PC is in the list of idle loop addresses before we allow
-    // skipping.
-    //
-    if (Settings.SA1)
-    {
-        bool sa1InIdleLoop = false;
-        uint32 sa1PBPC = (uint32)SA1.PC - (uint32)SA1.PCBase + (uint32) (SA1Registers.PB << 16);
-        //printf ("SA1 PBPC: %6x\n", sa1PBPC);
-        for (int i = 0; i < SNESGameFixes.SpeedHackSA1AddressCount; i++)
-        {
-            if (SNESGameFixes.SpeedHackSA1Address[i] == sa1PBPC)
-            {
-                sa1InIdleLoop = true;
-                break;
-            }
-        }
-        if (!sa1InIdleLoop)
-            doSkip = false;
-        //else
-        //  printf ("  doSkip = %d (after SA1 check)\n", doSkip);
-    }
-    
-    
-    
     // If we decide to skip, then we add cycles to the CPU_Cycles
     // until just before the next event.
     //
     if (doSkip)
     {
-        //printf ("  Skipped!\n");
+        //printf ("s");
+        //printf ("VC: %d - skip %d to %d\n", CPU.V_Counter, CPU_Cycles);
         
         int cyclesToSkip = SNESGameFixes.SpeedHackCycles[foundHackIndex];
 
@@ -6744,6 +6808,7 @@ static void Op42 (void)
                 CPU_Cycles = CPU_Cycles + cyclesToSkip;
             }
         }
+        //printf (" %d\n", OCPU.NextEvent);
     }
     
 }

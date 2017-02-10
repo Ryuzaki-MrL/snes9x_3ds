@@ -2,44 +2,76 @@
 #ifndef _3DSMENU_H_
 #define _3DSMENU_H_
 
+#define MENUITEM_DISABLED           -1
+#define MENUITEM_HEADER1            0
+#define MENUITEM_HEADER2            1
+#define MENUITEM_ACTION             2
+#define MENUITEM_CHECKBOX           3
+#define MENUITEM_GAUGE              4
+#define MENUITEM_PICKER             5
+
 typedef struct
 {
-    int     ID;
-    char    *Text;
-    int     Checked;            // -1, not a checkbox
-                                // 0, unchecked
-                                // 1, checked
+    int     Type;               // -1 - Disabled
+                                // 0 - Header
+                                // 1 - Action 
+                                // 2 - Checkbox
+                                // 3 - Gauge
+                                // 4 - Picker
 
-    int     GaugeMinValue;      
-    int     GaugeMaxValue;      // Set MinValue < MaxValue to make the gauge visible. 
-    int     GaugeValue;         // 
+    int     ID;                 
+    
+    char    *Text;
+
+    char    *Description;
+
+    int     Value;              
+                                // Type = Gauge:
+                                //   Value = Gauge Value
+                                // Type = Checkbox:
+                                //   0, unchecked
+                                //   1, checked
+                                // Type = Picker:
+                                //   Selected ID of Picker
+
+    int     GaugeMinValue;
+    int     GaugeMaxValue;      // Set MinValue < MaxValue to make the gauge visible.
+
+    // All these fields are used if this is a picker.
+    // (ID = 100000)
+    //
+    char    *PickerDescription;
+    int     PickerItemCount;
+    void    *PickerItems;
+    int     PickerBackColor;
 } SMenuItem;
 
 
-void S9xSetTransferGameScreen(bool transfer);
-int S9xMenuSelectItem();
 
-void S9xSetTabSubTitle(int tabIndex, char *subtitle);
-void S9xAddTab(char *title, SMenuItem *menuItems, int itemCount);
-void S9xClearMenuTabs();
-void S9xSetCurrentMenuTab(int tabIndex);
-void S9xSetSelectedItemIndexByID(int tabIndex, int ID);
 
-void S9xShowTitleAndMessage(
-    int titleForeColor, int titleBackColor,
-    int mainForeColor, int mainBackColor,
-    char *title, char *messageLine1, char *messageLine2, char *messageLine3, char *messageLine4);
-void S9xShowWaitingMessage(char *title, char *messageLine1, char *messageLine2);
-void S9xAlertSuccess(char *title, char *messageLine1, char *messageLine2);
-void S9xAlertFailure(char *title, char *messageLine1, char *messageLine2);
-bool S9xConfirm(char *title, char *messageLine1, char *messageLine2);
+void menu3dsSetTransferGameScreen(bool transfer);
 
-void S9xUncheckGroup(SMenuItem *menuItems, int itemCount, int group);
-void S9xCheckItemByID(SMenuItem *menuItems, int itemCount, int id);
-void S9xSetCheckItemByID(SMenuItem *menuItems, int itemCount, int id, int value);
-void S9xSetGaugeValueItemByID(SMenuItem *menuItems, int itemCount, int id, int value, char *text);
-int S9xGetGaugeValueItemByID(SMenuItem *menuItems, int itemCount, int id);
+void menu3dsSetTabSubTitle(int tabIndex, char *subtitle);
+void menu3dsAddTab(char *title, SMenuItem *menuItems, int itemCount);
+void menu3dsClearMenuTabs();
+void menu3dsSetCurrentMenuTab(int tabIndex);
+void menu3dsSetSelectedItemIndexByID(int tabIndex, int ID);
+void menu3dsSetValueByID(int tabIndex, int ID, int value);
+int menu3dsGetValueByID(int tabIndex, int ID);
 
-bool S9xTakeScreenshot(char *path);
+void menu3dsDrawBlackScreen(float opacity = 1.0f);
+
+int menu3dsShowMenu(void (*itemChangedCallback)(int ID, int value), bool animateMenu);
+void menu3dsHideMenu();
+
+int menu3dsShowDialog(char *title, char *dialogText, int dialogBackColor, SMenuItem *menuItems, int itemCount, int selectedID = -1);
+void menu3dsHideDialog();
+
+bool menu3dsTakeScreenshot(const char *path);
+
+
+#define DIALOGCOLOR_RED     0xEC407A
+#define DIALOGCOLOR_GREEN   0x4CAF50
+#define DIALOGCOLOR_CYAN    0x0097A7
 
 #endif

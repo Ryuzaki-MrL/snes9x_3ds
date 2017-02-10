@@ -182,6 +182,11 @@ struct InternalPPU {
 
     int                             HiresFlip; 
 
+    // Screen colors for Mode 7 Ext BG
+    //
+    uint16 Mode7ScreenColors[256];
+    uint16 Mode7ScreenColors128[256];
+
     // Added for register change optimization.
     // Helps in reducing number of FLUSH_REDRAWs per frame.
     //

@@ -550,8 +550,12 @@ bool8 S9xFreezeGame (const char *filename)
 	
     if (S9xOpenSnapshotFile (filename, FALSE, &stream))
     {
+		S9xPrepareSoundForSnapshotSave (FALSE);
+		
 		S9xFreezeToStream (stream);
 		S9xCloseSnapshotFile (stream);
+
+		S9xPrepareSoundForSnapshotSave (TRUE);
 
 		/*if(S9xMovieActive())
 		{
@@ -903,7 +907,7 @@ int S9xUnfreezeFromStream (STREAM stream)
 			S9xUpdateRTC();
 		}
 
-		S9xFixSoundAfterSnapshotLoad ();
+		S9xFixSoundAfterSnapshotLoad (1);
 
 		uint8 hdma_byte = Memory.FillRAM[0x420c];
 		S9xSetCPU(hdma_byte, 0x420c);
@@ -1807,7 +1811,7 @@ fread(&temp, 1, 4, fs);
 		S9xFixColourBrightness ();
 		IPPU.RenderThisFrame = FALSE;
 		
-		S9xFixSoundAfterSnapshotLoad ();
+		S9xFixSoundAfterSnapshotLoad (1);
 		ICPU.ShiftedPB = Registers.PB << 16;
 		ICPU.ShiftedDB = Registers.DB << 16;
 		S9xSetPCBase (ICPU.ShiftedPB + Registers.PC);
