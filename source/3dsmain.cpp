@@ -1968,7 +1968,7 @@ void emulatorFinalize()
     ptmSysmExit ();
 
     //printf("romfsExit:\n");
-    //romfsExit();
+    romfsExit();
     
 #ifndef RELEASE
     printf("hidExit:\n");
