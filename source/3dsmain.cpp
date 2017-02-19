@@ -1967,7 +1967,9 @@ void emulatorFinalize()
 #endif
     ptmSysmExit ();
 
-    //printf("romfsExit:\n");
+#ifndef RELEASE
+    printf("romfsExit:\n");
+#endif
     romfsExit();
     
 #ifndef RELEASE
@@ -2723,6 +2725,7 @@ int main()
     //testAPU();
     //testGPU();
     //testTileCache();
+    mkdir("/snes", 0777);
     emulatorInitialize();
     clearTopScreenWithLogo();
 
