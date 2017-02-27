@@ -148,6 +148,7 @@ void S9xSA1Reset ()
 
     S9xSA1UnpackStatus();
     S9xSA1FixCycles ();
+	SA1.WaitCounter = 3;
     SA1.Executing = TRUE;
     SA1.BWRAM = Memory.SRAM;
     Memory.FillRAM [0x2225] = 0;
@@ -463,20 +464,24 @@ void S9xSetSA1MemMap (uint32 which1, uint8 map)
 
     for (c = 0; c < 0x100; c += 16)
     {
-	uint8 *block = &Memory.ROM [(map & 7) * 0x100000 + (c << 12)];
-	int i;
+		uint8 *block = &Memory.ROM [(map & 7) * 0x100000 + (c << 12)];
+		int i;
 
-	for (i = c; i < c + 16; i++)
-	    Memory.Map [start + i] = SA1.Map [start + i] = block;
+		for (i = c; i < c + 16; i++)
+			Memory.Map [start + i] = SA1.Map [start + i] = block;
     }
     
     for (c = 0; c < 0x200; c += 16)
     {
-	uint8 *block = &Memory.ROM [(map & 7) * 0x100000 + (c << 11) - 0x8000];
-	int i;
+		// Code from Snes9x 1.54.1 - 
+		// This allows Super Mario World VLDC 9 hack to work
+        // conversion to int is needed here - map is promoted but which1 is not
+        int32 offset = (((map & 0x80) ? map : which1) & 7) * 0x100000 + (c << 11) - 0x8000;
+		uint8	*block = &Memory.ROM[offset];
+		int i;
 
-	for (i = c + 8; i < c + 16; i++)
-	    Memory.Map [start2 + i] = SA1.Map [start2 + i] = block;
+		for (i = c + 8; i < c + 16; i++)
+			Memory.Map [start2 + i] = SA1.Map [start2 + i] = block;
     }
 }
 
@@ -514,7 +519,7 @@ uint8 S9xGetSA1 (uint32 address)
 	return (byte);
     }
     default:	
-	printf ("R: %04x\n", address);
+	//printf ("R: %04x\n", address);
 	break;
     }
     return (Memory.FillRAM [address]);
@@ -541,6 +546,9 @@ void S9xSetSA1 (uint8 byte, uint32 address)
 		SA1.Flags |= IRQ_PENDING_FLAG;
 		SA1.IRQActive |= SNES_IRQ_SOURCE;
 		SA1.Executing = !SA1.Waiting && SA1.S9xOpcodes;
+		if (SA1.Executing) SA1.WaitCounter = 3;
+			//if (SA1.Executing)
+			//	printf("Write 0x2200 - Wake SA1\n");
 	    }
 	}
 	if (byte & 0x10)
@@ -616,21 +624,30 @@ void S9xSetSA1 (uint8 byte, uint32 address)
 	{
 	    SA1.Flags |= IRQ_PENDING_FLAG;
 	    SA1.IRQActive |= SNES_IRQ_SOURCE;
-//	    SA1.Executing = !SA1.Waiting;
+	    SA1.Executing = !SA1.Waiting;
+		if (SA1.Executing) SA1.WaitCounter = 3;
+			//if (SA1.Executing)
+			//	printf("Write 0x220a - Wake SA1\n");
 	}
 	if (((byte ^ Memory.FillRAM [0x220a]) & 0x40) &&
 	    (Memory.FillRAM [0x2301] & byte & 0x40))
 	{
 	    SA1.Flags |= IRQ_PENDING_FLAG;
 	    SA1.IRQActive |= TIMER_IRQ_SOURCE;
-//	    SA1.Executing = !SA1.Waiting;
+	    SA1.Executing = !SA1.Waiting;
+		if (SA1.Executing) SA1.WaitCounter = 3;
+			//if (SA1.Executing)
+			//	printf("Write 0x220a - Wake SA1\n");
 	}
 	if (((byte ^ Memory.FillRAM [0x220a]) & 0x20) &&
 	    (Memory.FillRAM [0x2301] & byte & 0x20))
 	{
 	    SA1.Flags |= IRQ_PENDING_FLAG;
 	    SA1.IRQActive |= DMA_IRQ_SOURCE;
-//	    SA1.Executing = !SA1.Waiting;
+	    SA1.Executing = !SA1.Waiting;
+		if (SA1.Executing) SA1.WaitCounter = 3;
+			//if (SA1.Executing)
+			//	printf("Write 0x220a - Wake SA1\n");
 	}
 	if (((byte ^ Memory.FillRAM [0x220a]) & 0x10) &&
 	    (Memory.FillRAM [0x2301] & byte & 0x10))

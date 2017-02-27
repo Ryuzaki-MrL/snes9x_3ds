@@ -101,6 +101,7 @@
 #include "sdd1.h"
 #include "spc7110.h"
 #include "obc1.h"
+#include "bsx.h"
 
 
 #ifndef ZSNES_FX
@@ -111,6 +112,10 @@ extern struct FxInit_s SuperFX;
 void S9xResetSuperFX ()
 {
     SuperFX.vFlags = 0; //FX_FLAG_ROM_BUFFER;// | FX_FLAG_ADDRESS_CHECKING;
+	SuperFX.speedPerLine = (uint32) (0.417 * 10.5e6 * ((1.0 / (float) Memory.ROMFramesPerSecond) / 
+        ((float) ((Settings.PAL ? SNES_MAX_PAL_VCOUNTER : SNES_MAX_NTSC_VCOUNTER)))));
+	//printf("SFX:%d\n", SuperFX.speedPerLine);
+	SuperFX.oneLineDone = FALSE;
     FxReset (&SuperFX);
 }
 #endif
@@ -118,7 +123,7 @@ void S9xResetSuperFX ()
 void S9xResetCPU ()
 {
     Registers.PB = 0;
-    Registers.PC = S9xGetWord (0xFFFC);
+    Registers.PC = S9xGetWordNoCycles (0xFFFC);
     Registers.D.W = 0;
     Registers.DB = 0;
     Registers.SH = 1;
@@ -187,6 +192,9 @@ void S9xReset (void)
     memset (Memory.VRAM, 0x00, 0x10000);
     memset (Memory.RAM, 0x55, 0x20000);
 
+	if (Settings.BS)
+		S9xResetBSX();
+
 	if(Settings.SPC7110)
 		S9xSpc7110Reset();
     S9xResetCPU ();
@@ -218,6 +226,9 @@ void S9xSoftReset (void)
     ZeroMemory (Memory.FillRAM, 0x8000);
     memset (Memory.VRAM, 0x00, 0x10000);
  //   memset (Memory.RAM, 0x55, 0x20000);
+
+	if (Settings.BS)
+		S9xResetBSX();
 
 	if(Settings.SPC7110)
 		S9xSpc7110Reset();

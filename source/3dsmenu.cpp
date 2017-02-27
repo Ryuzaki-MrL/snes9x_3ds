@@ -15,7 +15,7 @@
 #define MENU_HEIGHT             (14)
 #define DIALOG_HEIGHT           (5)
 
-#define SNES9X_VERSION "v1.00"
+#define SNES9X_VERSION "v1.10"
 #define ANIMATE_TAB_STEPS 3
 
 
@@ -519,6 +519,7 @@ int menu3dsMenuSelectItem(void (*itemChangedCallback)(int ID, int value))
             break;
         }
 
+        gpu3dsCheckSlider();
         hidScanInput();
         thisKeysHeld = hidKeysHeld();
 

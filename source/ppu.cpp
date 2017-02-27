@@ -102,6 +102,7 @@
 #include "srtc.h"
 #include "spc7110.h"
 #include "movie.h"
+#include "bsx.h"
 
 #include "3dsopt.h"
 
@@ -1062,6 +1063,8 @@ void S9xSetPPU (uint8 Byte, uint16 Address)
 
 			return;
 		}
+		else if (Settings.BS && Address >= 0x2188 && Address <= 0x219f)
+			S9xSetBSXPPU(Byte, Address);
 		else
 			// Dai Kaijyu Monogatari II
 			if (Address == 0x2801 && Settings.SRTC)
@@ -1577,6 +1580,9 @@ uint8 S9xGetPPU (uint16 Address)
     {
 	if (Settings.SA1)
 	    return (S9xGetSA1 (Address));
+
+	if (Settings.BS && Address >= 0x2188 && Address <= 0x219f)
+		return (S9xGetBSXPPU(Address));
 
 	if (Address <= 0x2fff || Address >= 0x3000 + 768)
 	{
@@ -2705,7 +2711,8 @@ void S9xResetPPU ()
 	for (int i = 0; i < 16; i++)
 	{
 		GFX.PaletteFrame[i] = 1;
-		GFX.PaletteFrame4[i] = 1;
+		for (int bg = 0; bg < 4; bg++)
+			GFX.PaletteFrame4BG[bg][i] = 1;
 	}
 	GFX.PaletteFrame256[0] = 1;
 	ZeroMemory (GFX.VRAMPaletteFrame, 8192 * 16 * 4);
@@ -2928,7 +2935,8 @@ void S9xSoftResetPPU ()
 	for (int i = 0; i < 16; i++)
 	{
 		GFX.PaletteFrame[i] = 1;
-		GFX.PaletteFrame4[i] = 1;
+		for (int bg = 0; bg < 4; bg++)
+			GFX.PaletteFrame4BG[bg][i] = 1;
 	}
 	GFX.PaletteFrame256[0] = 1;
 	ZeroMemory (GFX.VRAMPaletteFrame, 8192 * 16 * 4);
@@ -3337,12 +3345,20 @@ void S9xSuperFXExec ()
 	if ((Memory.FillRAM [0x3000 + GSU_SFR] & FLG_G) &&
 	    (Memory.FillRAM [0x3000 + GSU_SCMR] & 0x18) == 0x18)
 	{
+		
 	    if (!Settings.WinterGold||Settings.StarfoxHack)
 		FxEmulate (~0);
 	    else
-		FxEmulate ((Memory.FillRAM [0x3000 + GSU_CLSR] & 1) ? 700 : 350);
+		FxEmulate ((Memory.FillRAM [0x3000 + GSU_CLSR] & 1) ? 700 : 350); 
+
+		/*
+		FxEmulate ((Memory.FillRAM [0x3000 + GSU_CLSR] & 1) ? 
+			SuperFX.speedPerLine * 2 : SuperFX.speedPerLine);
+		*/
+		
 	    int GSUStatus = Memory.FillRAM [0x3000 + GSU_SFR] |
 			    (Memory.FillRAM [0x3000 + GSU_SFR + 1] << 8);
+				
 	    if ((GSUStatus & (FLG_G | FLG_IRQ)) == FLG_IRQ)
 	    {
 		// Trigger a GSU IRQ.

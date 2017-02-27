@@ -79,10 +79,12 @@ export DEPSDIR	:=	$(CURDIR)/$(BUILD)
 #CFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
 #CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
 CFILES		:=
-CPPFILES	:=	3dsmain.cpp 3dsmenu.cpp 3dsopt.cpp 3dsgpu.cpp 3dssound.cpp 3dsui.cpp 3dsexit.cpp \
+CPPFILES	:=	3dsmain.cpp 3dsmenu.cpp 3dsopt.cpp \
+			3dsgpu.cpp 3dssound.cpp 3dsui.cpp 3dsexit.cpp \
+			3dsconfig.cpp 3dsfiles.cpp 3dsinput.cpp 3dsmatrix.cpp \
+			3dsimpl.cpp 3dsimpl_tilecache.cpp 3dsimpl_gpu.cpp \
 			gpulib.cpp \
-			sf2d_private.cpp \
-			fxinst.cpp fxemu.cpp fxdbg.cpp \
+			bsx.cpp fxinst.cpp fxemu.cpp fxdbg.cpp \
 			c4.cpp c4emu.cpp \
 			soundux.cpp spc700.cpp apu.cpp \
 			cpuexec.cpp sa1cpu.cpp hwregisters.cpp \
@@ -96,8 +98,6 @@ CPPFILES	:=	3dsmain.cpp 3dsmenu.cpp 3dsopt.cpp 3dsgpu.cpp 3dssound.cpp 3dsui.cpp
 			gfx.cpp gfxhw.cpp memmap.cpp clip.cpp cliphw.cpp \
 			dsp1.cpp ppu.cpp ppuvsect.cpp dma.cpp snes9x.cpp data.cpp globals.cpp \
 			lodepng.cpp
-
-
 
 SFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
 PICAFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.v.pica)))
@@ -154,6 +154,32 @@ ifneq ($(ROMFS),)
 	export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
 endif
 
+#---------------------------------------------------------------------------------
+# OS detection to automatically determine the correct makerom variant to use for
+# CIA creation
+#---------------------------------------------------------------------------------
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+MAKEROM :=
+ifeq ($(UNAME_S), Darwin)
+	ifeq ($(UNAME_M), x86_64)
+		MAKEROM := ./makerom/darwin_x86_64/makerom
+	endif
+endif
+ifeq ($(UNAME_S), Linux)
+	ifeq ($(UNAME_M), x86_64)
+		MAKEROM := ./makerom/linux_x86_64/makerom
+	endif
+endif
+ifeq ($(findstring CYGWIN_NT, $(UNAME_S)),CYGWIN_NT)
+	MAKEROM := ./makerom/windows_x86_64/makerom.exe
+endif
+ifeq ($(findstring MINGW32_NT, $(UNAME_S)), MINGW32_NT)
+	MAKEROM := ./makerom/windows_x86_64/makerom.exe
+endif
+#---------------------------------------------------------------------------------
+
+
 .PHONY: $(BUILD) clean all
 
 #---------------------------------------------------------------------------------
@@ -165,7 +191,12 @@ $(BUILD):
 
 #---------------------------------------------------------------------------------
 cia: $(BUILD)
-	./makerom -rsf $(OUTPUT).rsf -elf $(OUTPUT).elf -icon $(OUTPUT).icn -banner $(OUTPUT).bnr -f cia -o $(OUTPUT).cia
+ifneq ($(MAKEROM),)
+	$(MAKEROM) -rsf $(OUTPUT).rsf -elf $(OUTPUT).elf -icon $(OUTPUT).icn -banner $(OUTPUT).bnr -f cia -o $(OUTPUT).cia
+else
+	$(error "CIA creation is not supported on this platform ($(UNAME_S)_$(UNAME_M))")
+endif
+
 
 #---------------------------------------------------------------------------------
 clean:
